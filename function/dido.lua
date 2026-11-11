@@ -1,6 +1,6 @@
 -- 4DI 采集 + 4DO 控制
 -- DI 输入: DI_CH1~4
--- DO 输出: DO_CH1~4
+-- DO 输出: DO_CH1~4 (继电器控制)
 
 -- ============ 管脚定义 ============
 local DI_CH1 = 36
@@ -12,6 +12,8 @@ local DO_CH1 = 21
 local DO_CH2 = 3
 local DO_CH3 = 35
 local DO_CH4 = 34
+
+local DO_EN  = 22  -- 继电器使能脚, 需保持高电平
 
 -- ============ 对外接口（必须先定义） ============
 
@@ -56,6 +58,9 @@ gpio.setup(DO_CH1, 0, gpio.PULLDOWN)
 gpio.setup(DO_CH2, 0, gpio.PULLDOWN)
 gpio.setup(DO_CH3, 0, gpio.PULLDOWN)
 gpio.setup(DO_CH4, 0, gpio.PULLDOWN)
+
+-- DO_EN: 继电器使能脚, 保持高电平
+gpio.setup(DO_EN, 1, gpio.PULLDOWN)
 
 -- ============ DI 采集任务 ============
 local function di_scan_task()
