@@ -13,6 +13,8 @@ require("led_blink")
 require("di")
 -- 加载 DO 继电器模块
 require("do")
+-- 加载 RS485 串口2模块
+require("rs485")
 
 sys.run()
 

@@ -83,7 +83,8 @@ local function do_test_task()
     end
 end
 
-sys.taskInit(do_test_task)
+-- 暂时不需要继电器循环控制，先注释掉
+-- sys.taskInit(do_test_task)
 
 return {
     do_set = do_set,
