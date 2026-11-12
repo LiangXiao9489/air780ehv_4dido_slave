@@ -7,6 +7,8 @@ pm.ioVol(pm.IOVOL_ALL_GPIO, 3300)
 
 log.info("main", "project name is ", PROJECT, "version is ", VERSION)
 
+-- 加载外部硬件看门狗喂狗模块（Air153C，GPIO28）
+require("ext_wdt")
 -- 加载 LED 闪烁模块
 require("led_blink")
 -- 加载 DI 采集模块
