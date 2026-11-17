@@ -1,12 +1,14 @@
 --[[
 @module  mapping_modbusRTU
 @summary 4DI / 4DO 与 Modbus RTU 从站的地址映射与业务处理
-@version 1.0
+@version 1.1
+@date    2026.11.17
 @usage
 本板卡作为 Modbus RTU 从机：
-  DI_CH1~4  ->  离散输入 (FC 0x02)        PDU 地址 600~603   只读
-  DO_CH1~4  ->  线圈     (FC 0x01/05/0F)  PDU 地址 800~803   可读写
+  DI_a~d  ->  离散输入 (FC 0x02)        PDU 地址见下方 DI_ADDR 表   只读
+  DO_a~d  ->  线圈     (FC 0x01/05/0F)  PDU 地址见下方 DO_ADDR 表   可读写
 
+地址通过显式表定义，允许不连续。
 协议编解码全部交给 modbus_core.lua，本文件只做「地址映射 + 业务动作」。
 
 调用方式（由 rs485.lua 的串口接收回调调用）：
@@ -14,8 +16,8 @@
   local resp = slave.feed(chunk)   -- 传入本次收到的字节，返回需要应答的 ADU，无应答返回 nil
 ]]
 
-local mb  = require("modbus_core")
-local di  = require("di")
+local mb   = require("modbus_core")
+local di   = require("di")
 local dout = require("do")
 
 -- ============================================================
@@ -23,48 +25,79 @@ local dout = require("do")
 -- ============================================================
 local SLAVE_ADDR = 1        -- 从机地址 1~247
 
-local DI_BASE    = 600      -- 离散输入起始地址（PDU 地址）
-local DI_COUNT   = 4        -- 离散输入数量
+-- 离散输入地址（PDU 地址，可连续可不连续）
+-- key 是通道标签，value 是对应的 Modbus PDU 地址
+local DI_ADDR = {
+    a = 600,   -- DI_CH1
+    b = 601,   -- DI_CH2
+    c = 605,   -- DI_CH3
+    d = 606,   -- DI_CH4
+}
 
-local DO_BASE    = 800      -- 线圈起始地址（PDU 地址）
-local DO_COUNT   = 4        -- 线圈数量
+-- 线圈地址（PDU 地址，可连续可不连续）
+local DO_ADDR = {
+    a = 800,   -- DO_CH1
+    b = 801,   -- DO_CH2
+    c = 805,   -- DO_CH3
+    d = 806,   -- DO_CH4
+}
 
 local MAX_RX_BUF = 256      -- 接收缓冲区上限，防止异常数据无限堆积
+
+-- key -> GPIO 通道号（1-based）
+local KEY_TO_CH = { a = 1, b = 2, c = 3, d = 4 }
 
 local _M = {}
 
 -- ============================================================
--- 线圈状态缓存（上电默认全 0），与 do.lua 的 GPIO 输出保持同步
+-- 由地址表构建反向映射：addr -> key 字符串
 -- ============================================================
-local coil_state = {}
-for i = 1, DO_COUNT do
-    coil_state[i] = 0
-end
+local di_addr_to_key = {}   -- addr -> "a"/"b"/"c"/"d"
+for k, v in pairs(DI_ADDR) do di_addr_to_key[v] = k end
 
--- 读取第 index 路离散输入（1~DI_COUNT），返回 0/1
-local function read_di(index)
-    local v = di.di_get(index)
+local do_addr_to_key = {}
+for k, v in pairs(DO_ADDR) do do_addr_to_key[v] = k end
+
+-- ============================================================
+-- 线圈状态缓存（上电默认全 0），与 do.lua 的 GPIO 输出保持同步
+-- key 为 "a"/"b"/"c"/"d"
+-- ============================================================
+local coil_state = { a = 0, b = 0, c = 0, d = 0 }
+
+-- 读取离散输入，key = "a"/"b"/"c"/"d"，返回 0/1
+local function read_di(key)
+    local v = di.di_get(KEY_TO_CH[key])
     return (v and v ~= 0) and 1 or 0
 end
 
--- 写入第 index 路线圈（1~DO_COUNT）
-local function write_coil(index, val)
+-- 写入线圈，key = "a"/"b"/"c"/"d"，val = 0/1
+local function write_coil(key, val)
     val = (val ~= 0) and 1 or 0
-    coil_state[index] = val
-    dout.do_set(index, val)
+    coil_state[key] = val
+    dout.do_set(KEY_TO_CH[key], val)
 end
 
--- 地址区间合法性检查：请求的 [addr, addr+qty-1] 必须完全落在 [base, base+count-1] 内
-local function in_range(addr, qty, base, count)
-    return addr >= base and qty >= 1 and (addr + qty - 1) <= (base + count - 1)
+-- ============================================================
+-- 地址合法性检查：请求的 [addr, addr+qty-1] 范围内
+-- 每一个地址都必须在反向映射表中存在
+-- ============================================================
+local function range_ok(start, qty, addr_to_key)
+    if qty < 1 or start < 0 then return false end
+    for a = start, start + qty - 1 do
+        if not addr_to_key[a] then return false end
+    end
+    return true
 end
 
--- 按偏移量收集 qty 个位，offset = 请求地址 - 起始地址
--- getter(index) 返回第 index 路（1-based）的 0/1 值
-local function collect_bits(offset, qty, getter)
+-- 按地址范围收集 qty 个位的值
+-- getter(key) 返回该位当前 0/1 值
+local function collect_bits(start, qty, addr_to_key, getter)
     local data = {}
-    for i = 1, qty do
-        data[i] = getter(offset + i)
+    local i = 1
+    for a = start, start + qty - 1 do
+        local key = addr_to_key[a]
+        data[i] = key and getter(key) or 0
+        i = i + 1
     end
     return data
 end
@@ -90,43 +123,48 @@ local function process_frame(adu)
     local resp
 
     if fc == mb.FC_READ_COILS then
-        -- 0x01 读线圈
-        if not in_range(req.addr, req.qty, DO_BASE, DO_COUNT) then
+        -- 0x01 读线圈（DO）
+        if not range_ok(req.addr, req.qty, do_addr_to_key) then
             resp = mb.encode_exception(SLAVE_ADDR, fc, mb.EXCEPTION_ILLEGAL_DATA_ADDRESS)
         else
-            local data = collect_bits(req.addr - DO_BASE, req.qty, function(i)
-                return coil_state[i] or 0
+            local data = collect_bits(req.addr, req.qty, do_addr_to_key, function(key)
+                return coil_state[key] or 0
             end)
             resp = mb.encode_response({ dev_id = SLAVE_ADDR, fc = fc, data = data })
         end
 
     elseif fc == mb.FC_READ_DISCRETE_INPUTS then
-        -- 0x02 读离散输入
-        if not in_range(req.addr, req.qty, DI_BASE, DI_COUNT) then
+        -- 0x02 读离散输入（DI）
+        if not range_ok(req.addr, req.qty, di_addr_to_key) then
             resp = mb.encode_exception(SLAVE_ADDR, fc, mb.EXCEPTION_ILLEGAL_DATA_ADDRESS)
         else
-            local data = collect_bits(req.addr - DI_BASE, req.qty, read_di)
+            local data = collect_bits(req.addr, req.qty, di_addr_to_key, read_di)
             resp = mb.encode_response({ dev_id = SLAVE_ADDR, fc = fc, data = data })
         end
 
     elseif fc == mb.FC_WRITE_SINGLE_COIL then
         -- 0x05 写单个线圈
-        if not in_range(req.addr, 1, DO_BASE, DO_COUNT) then
+        local key = do_addr_to_key[req.addr]
+        if not key then
             resp = mb.encode_exception(SLAVE_ADDR, fc, mb.EXCEPTION_ILLEGAL_DATA_ADDRESS)
         else
-            write_coil(req.addr - DO_BASE + 1, (req.value == 0xFF00) and 1 or 0)
-            log.info("MB", "写线圈", req.addr, "=", (req.value == 0xFF00) and 1 or 0)
+            write_coil(key, (req.value == 0xFF00) and 1 or 0)
+            log.info("MB", "写线圈", req.addr, "(", key, ")=",
+                     (req.value == 0xFF00) and 1 or 0)
             resp = mb.encode_response({ dev_id = SLAVE_ADDR, fc = fc,
                                         addr = req.addr, value = req.value })
         end
 
     elseif fc == mb.FC_WRITE_MULTIPLE_COILS then
         -- 0x0F 写多个线圈
-        if not in_range(req.addr, req.qty, DO_BASE, DO_COUNT) then
+        if not range_ok(req.addr, req.qty, do_addr_to_key) then
             resp = mb.encode_exception(SLAVE_ADDR, fc, mb.EXCEPTION_ILLEGAL_DATA_ADDRESS)
         else
-            for i = 1, req.qty do
-                write_coil(req.addr - DO_BASE + i, req.values[i])
+            local i = 1
+            for a = req.addr, req.addr + req.qty - 1 do
+                local key = do_addr_to_key[a]
+                write_coil(key, req.values[i] or 0)
+                i = i + 1
             end
             log.info("MB", "写多个线圈, 起始", req.addr, "数量", req.qty)
             resp = mb.encode_response({ dev_id = SLAVE_ADDR, fc = fc,
