@@ -31,8 +31,8 @@ local report   = require "report"
 local cfg      = require "cfg"
 local ota      = require "ota"
 local config   = require "config"
-local di       = require "di"
 local dout     = require "do"
+local points   = require "point_table"
 
 local down = {}
 
@@ -52,16 +52,6 @@ local function is_self(dev_id)
     return tostring(dev_id) == DEV_KEY
 end
 
--- DO tag → GPIO 通道号（和 report.lua 保持一致）
-local DO_TAG_TO_CH = {
-    do_a = 1, do_b = 2, do_c = 3, do_d = 4,
-}
-
--- DI tag → GPIO 通道号
-local DI_TAG_TO_CH = {
-    di_a = 1, di_b = 2, di_c = 3, di_d = 4,
-}
-
 -- ============================================================
 -- 内部：处理 /s/${sn} 的 call（查询 DI/DO 状态）
 -- ============================================================
@@ -71,9 +61,8 @@ local function handle_call(dev_id, body)
     local result = {}
 
     if #ts == 0 then
-        -- 空 ts → 返回全部 DI/DO
-        ts = { "di_a", "di_b", "di_c", "di_d",
-               "do_a", "do_b", "do_c", "do_d" }
+        -- 空 ts → 返回全部 DI/DO（从 points 动态生成，改 tag 自动同步）
+        for _, p in ipairs(points.POINTS) do ts[#ts + 1] = p.tag end
     end
 
     local all_ok = true
@@ -125,19 +114,19 @@ local function handle_set(dev_id, body)
         if tag == "mid" then goto continue end
 
         -- 不允许写 DI（只读）
-        if DI_TAG_TO_CH[tag] then
+        if points.DI_TAG_TO_CH[tag] then
             all_ok = false
             fail_tags[#fail_tags + 1] = tag
             log.warn("mqtt.down", "set 不可写 DI", tag)
 
-        elseif DO_TAG_TO_CH[tag] then
+        elseif points.DO_TAG_TO_CH[tag] then
             local num_val = tonumber(val)
             if num_val == nil then
                 all_ok = false
                 fail_tags[#fail_tags + 1] = tag
                 log.warn("mqtt.down", "set 值非法", tag, tostring(val))
             else
-                local ch = DO_TAG_TO_CH[tag]
+                local ch = points.DO_TAG_TO_CH[tag]
                 local bin_val = (num_val ~= 0) and 1 or 0
                 dout.do_set(ch, bin_val)
                 any_written = true

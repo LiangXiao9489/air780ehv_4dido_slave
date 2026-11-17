@@ -93,16 +93,23 @@ SW1104V10_4DIDO/
 | CH3 (c) | `di_c` | `do_c` | 605 / 805 |
 | CH4 (d) | `di_d` | `do_d` | 606 / 806 |
 
-### ⚠️ 改 tag 名注意事项
+### 改 tag 名注意事项
 
-DI/DO 的 MQTT tag 定义**分散在两个文件里，必须同步改**：
+**现在 tag 定义是单点的**，只需要改 [wireless/mqtt/protocol/points.lua](wireless/mqtt/protocol/points.lua)：
 
-1. **上报 tag** — [wireless/mqtt/protocol/report.lua](wireless/mqtt/protocol/report.lua) 的 `DI_POINTS` / `DO_POINTS` 表
-2. **下行控制 tag** — [wireless/mqtt/protocol/down.lua](wireless/mqtt/protocol/down.lua) 的 `DI_TAG_TO_CH` / `DO_TAG_TO_CH` 表
+```lua
+local POINTS = {
+    { tag = "di_a", type = "di", ch = 1 },   -- 改 tag 字段就行
+    ...
+    { tag = "do_a", type = "do", ch = 1 },   -- 上行和下行自动同步
+}
+```
 
-**额外风险点**：`report.lua` 的 `read_point()` 用 tag 前缀 `pt.tag:sub(1, 2) == "di"` 判断读 DI 还是 DO。
-
-如果新 tag 前缀不再是 `di_` / `do_`（比如改成 `DI1`、`DO1`），需要同步修改这个判断逻辑。如果 tag 完全不带类型前缀（比如 `CH1`、`CH2`），建议把前缀判断改成**用 `report.lua` 里的 ALL_POINTS 表查类型**，而不是靠字符串匹配。
+- `type` 字段（`"di"` / `"do"`）决定读哪个驱动、是否允许写入，**不要乱改**
+- `ch` 是硬件通道号，**不要改**（和硬件接线绑定）
+- report.lua 的上报、down.lua 的 call/set 校验都从 points 自动生成索引，改 tag 全局生效
+- **不存在前缀 hack 了** — 以前靠 `pt.tag:sub(1,2) == "di"` 判断类型的逻辑已删掉，
+  现在直接用 `p.type` 字段，tag 叫 `"door_sensor_1"` 还是 `"DI_CH1"` 还是数字都行
 
 ### 遗留 TODO
 

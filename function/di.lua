@@ -39,8 +39,7 @@ local function di_scan_task()
     end
 end
 
--- 暂时不需要DI采集循环打印，先注释掉
--- sys.taskInit(di_scan_task)
+sys.taskInit(di_scan_task)
 
 return {
     di_get = di_get,
