@@ -39,7 +39,7 @@ local function di_scan_task()
     end
 end
 
-sys.taskInit(di_scan_task)
+-- sys.taskInit(di_scan_task)
 
 return {
     di_get = di_get,

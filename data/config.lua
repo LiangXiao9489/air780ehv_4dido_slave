@@ -30,6 +30,12 @@ local CONFIG_PATH = "/gateway_cfg.json"
 
 -- 默认参数（按功能分组）
 local DEFAULT_CFG = {
+    -- ---------- U2 串口参数（RS485 从站传输层，改了需要重启生效） ----------
+    u2_baudrate  = 9600,       -- 波特率：1200 / 2400 / 4800 / 9600 / 19200 / 38400 / 57600 / 115200
+    u2_databits  = 8,          -- 数据位：5~8
+    u2_stopbits  = 1,          -- 停止位：1 / 2
+    u2_parity    = "N",        -- 校验位：N=无 / E=偶 / O=奇
+
     -- ---------- MQTT 业务参数 ----------
     upload_interval_min = 5,   -- MQTT 实时数据上报间隔（分钟，需为整分钟对齐）
     change_check_sec    = 5,   -- 变化数据检测周期（秒）

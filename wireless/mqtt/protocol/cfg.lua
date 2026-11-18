@@ -37,6 +37,13 @@ local cfg = {}
 -- requires_reboot  写入后必须重启才生效（内部元数据，不是可读 tag）
 -- ============================================================
 local REG = {
+    -- U2 串口参数（RS485 从站传输层，改了需要重启生效）
+    u2_baudrate = { type = "number", min = 1200,  max = 115200, requires_reboot = true },
+    u2_databits = { type = "number", min = 5,     max = 8,      requires_reboot = true },
+    u2_stopbits = { type = "number", min = 1,     max = 2,      requires_reboot = true },
+    u2_parity   = { type = "string", enum = { N = true, E = true, O = true }, requires_reboot = true },
+
+    -- MQTT 业务参数
     upload_interval_min = { type = "number", min = 1,  max = 60 },
     change_check_sec    = { type = "number", min = 1,  max = 60 },
     mqtt_do_en          = { type = "bool" },
@@ -44,6 +51,7 @@ local REG = {
 
 -- 全量读取时的输出顺序（Lua 表无序，固定顺序方便平台对比）
 local PARAM_ORDER = {
+    "u2_baudrate", "u2_databits", "u2_stopbits", "u2_parity",
     "upload_interval_min", "change_check_sec", "mqtt_do_en",
 }
 
